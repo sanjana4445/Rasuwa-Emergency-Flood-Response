@@ -54,6 +54,7 @@ PARTNER_FILES = {
 }
 STAFF_FILE = Path("partner_files/Staff_Roster.xlsx")
 STAFF_SAVE_FILE = Path("partner_files/Staff_Roster.csv")
+DATA_ENTRY_SAVE_FILE = Path("partner_files/Monitoring_Data_Entry.csv")
 STAFF_COLUMNS = [
     "Name", "Position", "Duty Station", "Partner", "District", "Palika",
     "Phone", "Email", "Status",
@@ -551,8 +552,31 @@ with tab_staff:
             "text/csv",
         )
 with tab_data:
-    st.subheader("Data review and export")
-    st.caption("Update the four Excel files for permanent changes, then click Reload Excel files in the sidebar. This table is a filtered review of the current source data.")
+    st.subheader("Data entry and export")
+    st.caption("Edit existing values directly, add rows with the plus button, or remove rows from this filtered view.")
     export_columns = ["Row ID", "Partner", "Frequency", "District", "Municipality", "Indicator", "Target", "Progress", "Activities"]
-    st.dataframe(filtered_df[export_columns], width="stretch", hide_index=True)
-    st.download_button("Download filtered CSV", filtered_df[export_columns].to_csv(index=False).encode("utf-8"), "flood_response_filtered.csv", "text/csv")
+    editable_data = st.data_editor(
+        filtered_df[export_columns],
+        num_rows="dynamic",
+        width="stretch",
+        hide_index=True,
+        key="monitoring_data_editor",
+        column_config={
+            "Target": st.column_config.NumberColumn(format="%,.0f"),
+            "Progress": st.column_config.NumberColumn(format="%,.0f"),
+        },
+    )
+    save_data, download_data = st.columns(2)
+    with save_data:
+        if st.button("Save entered data", type="primary", width="stretch"):
+            DATA_ENTRY_SAVE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            editable_data.to_csv(DATA_ENTRY_SAVE_FILE, index=False)
+            st.success(f"Saved {len(editable_data):,} rows to {DATA_ENTRY_SAVE_FILE}.")
+    with download_data:
+        st.download_button(
+            "Download filtered CSV",
+            editable_data.to_csv(index=False).encode("utf-8"),
+            "flood_response_filtered.csv",
+            "text/csv",
+            width="stretch",
+        )
