@@ -49,7 +49,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Helper function to safely find column names regardless of exact casing/naming
+# Helper function to safely find column names regardless of casing/naming
 def find_column(df, possible_names):
     for col in df.columns:
         clean_col = str(col).strip().lower()
@@ -58,7 +58,7 @@ def find_column(df, possible_names):
                 return col
     return None
 
-# Load data from all 4 partner matrices
+# Load data from all 4 partner matrices and skip top title metadata rows
 @st.cache_data
 def load_all_partners():
     partner_mapping = {
@@ -73,11 +73,29 @@ def load_all_partners():
     for partner_name, file_path in partner_mapping.items():
         if os.path.exists(file_path):
             try:
-                # Search for all sheets or default first sheet
                 xls = pd.ExcelFile(file_path)
                 for sheet in xls.sheet_names:
-                    df = pd.read_excel(file_path, sheet_name=sheet)
+                    # Read sheet raw without assuming row 0 is header
+                    raw_df = pd.read_excel(file_path, sheet_name=sheet, header=None)
+                    
+                    # Locate the row that contains real table headers (DISTRICT, AGENCY NAME, SN, etc.)
+                    header_idx = None
+                    for idx, row in raw_df.iterrows():
+                        row_str = row.astype(str).str.upper().to_list()
+                        if any(term in row_str for term in ["DISTRICT", "AGENCY NAME", "AGENCY", "SN", "PROVINCE"]):
+                            header_idx = idx
+                            break
+                            
+                    if header_idx is not None:
+                        df = pd.read_excel(file_path, sheet_name=sheet, skiprows=header_idx)
+                    else:
+                        df = raw_df
+                        
                     if not df.empty and len(df.columns) > 1:
+                        df = df.dropna(how='all')
+                        # Remove any leftover duplicate header rows in the data
+                        first_col = df.columns[0]
+                        df = df[df[first_col].astype(str).str.upper() != str(first_col).upper()]
                         df['Partner'] = partner_name
                         combined_dfs.append(df)
             except Exception:
@@ -101,7 +119,7 @@ df_master = load_all_partners()
 
 # Standardize Key Column Name Detection
 district_col = find_column(df_master, ["district", "dist"]) or "District"
-status_col = find_column(df_master, ["status", "progress", "state", "achievement"])
+status_col = find_column(df_master, ["status", "progress", "state", "achievement", "result"])
 target_col = find_column(df_master, ["target", "planned"])
 reached_col = find_column(df_master, ["reached", "achieved", "beneficiaries"])
 kits_col = find_column(df_master, ["kit", "material", "item"])
