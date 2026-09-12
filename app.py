@@ -58,7 +58,7 @@ def find_column(df, possible_names):
                 return col
     return None
 
-# Load data from all 4 partner matrices and skip top title metadata rows
+# Load data from all 4 partner matrices and clean header/blank rows
 @st.cache_data
 def load_all_partners():
     partner_mapping = {
@@ -75,13 +75,12 @@ def load_all_partners():
             try:
                 xls = pd.ExcelFile(file_path)
                 for sheet in xls.sheet_names:
-                    # Read sheet raw without assuming row 0 is header
                     raw_df = pd.read_excel(file_path, sheet_name=sheet, header=None)
                     
-                    # Locate the row that contains real table headers (DISTRICT, AGENCY NAME, SN, etc.)
+                    # Locate header row
                     header_idx = None
                     for idx, row in raw_df.iterrows():
-                        row_str = row.astype(str).str.upper().to_list()
+                        row_str = [str(x).upper().strip() for x in row.to_list()]
                         if any(term in row_str for term in ["DISTRICT", "AGENCY NAME", "AGENCY", "SN", "PROVINCE"]):
                             header_idx = idx
                             break
@@ -92,19 +91,28 @@ def load_all_partners():
                         df = raw_df
                         
                     if not df.empty and len(df.columns) > 1:
+                        # Clean unnamed index columns
+                        df = df.loc[:, ~df.columns.astype(str).str.contains('^Unnamed')]
+                        
+                        # Remove rows that are entirely empty or summary 'TOTAL' rows
                         df = df.dropna(how='all')
-                        # Remove any leftover duplicate header rows in the data
-                        first_col = df.columns[0]
-                        df = df[df[first_col].astype(str).str.upper() != str(first_col).upper()]
+                        
+                        # Identify main text columns to filter out header repetition and summary totals
+                        agency_col = find_column(df, ["agency", "ageny"])
+                        if agency_col:
+                            df = df[~df[agency_col].astype(str).str.upper().str.contains("TOTAL|AGENCY|AGENV", na=False)]
+                        
                         df['Partner'] = partner_name
                         combined_dfs.append(df)
             except Exception:
                 pass
             
     if combined_dfs:
-        return pd.concat(combined_dfs, ignore_index=True)
+        res = pd.concat(combined_dfs, ignore_index=True)
+        # Drop completely empty rows
+        res = res.dropna(how='all')
+        return res
     else:
-        # Fallback dummy data structure matching target districts
         return pd.DataFrame({
             "District": ["Rasuwa", "Dhading", "Nuwakot", "Gorkha", "Tanahu", "Rasuwa", "Dhading"],
             "Municipality": ["Gosaikunda", "Nilkanth", "Bidur", "Gorkha", "Vyas", "Uttargaya", "Gajuri"],
@@ -142,7 +150,7 @@ selected_partner = st.sidebar.selectbox("Select Partner:", partners_list)
 filtered_df = df_master.copy()
 
 if selected_district != "All Districts" and district_col in filtered_df.columns:
-    filtered_df = filtered_df[filtered_df[district_col].astype(str).str.lower().str.contains(selected_district.lower())]
+    filtered_df = filtered_df[filtered_df[district_col].astype(str).str.lower().str.contains(selected_district.lower(), na=False)]
 
 if selected_partner != "All Partners" and "Partner" in filtered_df.columns:
     filtered_df = filtered_df[filtered_df["Partner"] == selected_partner]
@@ -152,9 +160,9 @@ total_records = len(filtered_df)
 
 if status_col and status_col in filtered_df.columns:
     status_series = filtered_df[status_col].astype(str).str.lower()
-    achieved_count = len(filtered_df[status_series.str.contains("achieved|completed|100%|done|yes")])
-    in_progress_count = len(filtered_df[status_series.str.contains("progress|ongoing|started")])
-    not_started_count = len(filtered_df[status_series.str.contains("not started|pending|0%|no")])
+    achieved_count = len(filtered_df[status_series.str.contains("achieved|completed|100%|done|yes", na=False)])
+    in_progress_count = len(filtered_df[status_series.str.contains("progress|ongoing|started", na=False)])
+    not_started_count = len(filtered_df[status_series.str.contains("not started|pending|0%|no", na=False)])
 else:
     achieved_count, in_progress_count, not_started_count = 0, 0, total_records
 
