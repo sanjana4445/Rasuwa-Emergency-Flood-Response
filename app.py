@@ -427,41 +427,6 @@ with tab_monitoring:
         axis=1,
     )
 
-with tab_staff:
-    st.subheader("Staff currently assigned to flood response")
-    st.caption("Roster fields: name, position, duty station, partner, district, Palika, phone, email, and status.")
-    uploaded_staff = st.file_uploader("Upload staff roster", type=["xlsx", "csv"], help="Use this for a temporary review, or save the file as partner_files/Staff_Roster.xlsx for automatic loading.")
-    staff_df, staff_error = read_staff_roster(uploaded_staff)
-    if staff_error:
-        st.error(f"Could not read the staff roster: {staff_error}")
-    if staff_df.empty:
-        st.info("No staff roster has been added yet. Add partner_files/Staff_Roster.xlsx or upload an Excel/CSV roster above.")
-        template = pd.DataFrame(columns=STAFF_COLUMNS)
-        st.download_button(
-            "Download staff roster template",
-            template.to_csv(index=False).encode("utf-8"),
-            "Staff_Roster_Template.csv",
-            "text/csv",
-        )
-    else:
-        staff_filtered = staff_df.copy()
-        if selected_partner != "All partners":
-            staff_filtered = staff_filtered[staff_filtered["Partner"].astype(str) == selected_partner]
-        if selected_district != "All districts":
-            staff_filtered = staff_filtered[staff_filtered["District"].astype(str) == selected_district]
-        if selected_palika != "All Palikas":
-            staff_filtered = staff_filtered[staff_filtered["Palika"].astype(str) == selected_palika]
-        active_status = staff_filtered["Status"].astype(str).str.strip().str.lower().isin(["active", "onboarded", "assigned", "current"])
-        if active_status.any():
-            staff_filtered = staff_filtered[active_status]
-        st.metric("Staff shown", f"{len(staff_filtered):,}")
-        st.dataframe(staff_filtered, width="stretch", hide_index=True)
-        st.download_button(
-            "Download filtered staff roster",
-            staff_filtered.to_csv(index=False).encode("utf-8"),
-            "Staff_Roster_Filtered.csv",
-            "text/csv",
-        )
     risk_rows = monitoring[monitoring["Priority"] != "No target"].copy()
     high_risk_count = int((risk_rows["Priority"] == "High").sum())
     watch_count = int((risk_rows["Priority"] == "Watch").sum())
@@ -529,6 +494,41 @@ with tab_staff:
         },
     )
 
+with tab_staff:
+    st.subheader("Staff currently assigned to flood response")
+    st.caption("Roster fields: name, position, duty station, partner, district, Palika, phone, email, and status.")
+    uploaded_staff = st.file_uploader("Upload staff roster", type=["xlsx", "csv"], help="Use this for a temporary review, or save the file as partner_files/Staff_Roster.xlsx for automatic loading.")
+    staff_df, staff_error = read_staff_roster(uploaded_staff)
+    if staff_error:
+        st.error(f"Could not read the staff roster: {staff_error}")
+    if staff_df.empty:
+        st.info("No staff roster has been added yet. Add partner_files/Staff_Roster.xlsx or upload an Excel/CSV roster above.")
+        template = pd.DataFrame(columns=STAFF_COLUMNS)
+        st.download_button(
+            "Download staff roster template",
+            template.to_csv(index=False).encode("utf-8"),
+            "Staff_Roster_Template.csv",
+            "text/csv",
+        )
+    else:
+        staff_filtered = staff_df.copy()
+        if selected_partner != "All partners":
+            staff_filtered = staff_filtered[staff_filtered["Partner"].astype(str) == selected_partner]
+        if selected_district != "All districts":
+            staff_filtered = staff_filtered[staff_filtered["District"].astype(str) == selected_district]
+        if selected_palika != "All Palikas":
+            staff_filtered = staff_filtered[staff_filtered["Palika"].astype(str) == selected_palika]
+        active_status = staff_filtered["Status"].astype(str).str.strip().str.lower().isin(["active", "onboarded", "assigned", "current"])
+        if active_status.any():
+            staff_filtered = staff_filtered[active_status]
+        st.metric("Staff shown", f"{len(staff_filtered):,}")
+        st.dataframe(staff_filtered, width="stretch", hide_index=True)
+        st.download_button(
+            "Download filtered staff roster",
+            staff_filtered.to_csv(index=False).encode("utf-8"),
+            "Staff_Roster_Filtered.csv",
+            "text/csv",
+        )
 with tab_data:
     st.subheader("Data review and export")
     st.caption("Update the four Excel files for permanent changes, then click Reload Excel files in the sidebar. This table is a filtered review of the current source data.")
