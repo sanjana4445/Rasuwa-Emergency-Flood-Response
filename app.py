@@ -27,6 +27,11 @@ st.markdown(
     .metric-title { color:#64748b; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; }
     .metric-value { color:#0f172a; font-size:27px; font-weight:750; margin-top:6px; }
     .metric-sub { color:#1594a2; font-size:12px; font-weight:600; margin-top:3px; }
+    .progress-focus { background:#ffffff; border:1px solid #b9ddec; border-left:6px solid var(--unicef-blue); border-radius:14px; padding:18px 22px; margin:18px 0; }
+    .progress-focus-label { color:#64748b; font-size:12px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; }
+    .progress-focus-value { color:var(--unicef-deep); font-size:42px; font-weight:800; line-height:1.1; margin-top:3px; }
+    .progress-track { background:#e2e8f0; border-radius:999px; height:10px; margin-top:12px; overflow:hidden; }
+    .progress-fill { background:linear-gradient(90deg, var(--unicef-blue), var(--green)); border-radius:999px; height:100%; }
     .section { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:13px 18px 4px; margin:20px 0 10px; }
     .section h4 { color:#0f172a; font-size:16px; margin:0 0 2px; }
     .section p { color:#64748b; font-size:13px; margin:0 0 9px; }
@@ -48,6 +53,7 @@ PARTNER_FILES = {
     "SHANTI": "partner_files/SHANTI_Monitoring Matrix.xlsx",
 }
 STAFF_FILE = Path("partner_files/Staff_Roster.xlsx")
+STAFF_SAVE_FILE = Path("partner_files/Staff_Roster.csv")
 STAFF_COLUMNS = [
     "Name", "Position", "Duty Station", "Partner", "District", "Palika",
     "Phone", "Email", "Status",
@@ -169,6 +175,8 @@ def read_staff_roster(uploaded_file=None):
                 roster = pd.read_excel(uploaded_file)
         elif STAFF_FILE.exists():
             roster = pd.read_excel(STAFF_FILE)
+        elif STAFF_SAVE_FILE.exists():
+            roster = pd.read_csv(STAFF_SAVE_FILE)
         else:
             return pd.DataFrame(columns=STAFF_COLUMNS), None
     except Exception as error:
@@ -287,6 +295,10 @@ tab_overview, tab_partner, tab_period, tab_trends, tab_percentage, tab_monitorin
 )
 
 with tab_overview:
+    st.markdown(
+        f'''<div class="progress-focus"><div class="progress-focus-label">Overall response progress</div><div class="progress-focus-value">{completion:.1f}%</div><div class="progress-track"><div class="progress-fill" style="width:{min(max(completion, 0), 100):.1f}%;"></div></div></div>''',
+        unsafe_allow_html=True,
+    )
     st.markdown('<div class="section"><h4>Target versus progress by output</h4><p>Use this view to see which response areas have the largest gaps.</p></div>', unsafe_allow_html=True)
     output_summary = filtered_df.groupby("Result Area", as_index=False)[["Target", "Progress"]].sum()
     chart_data = output_summary.melt("Result Area", var_name="Measure", value_name="Value")
@@ -504,6 +516,11 @@ with tab_staff:
     if staff_df.empty:
         st.info("No staff roster has been added yet. Add partner_files/Staff_Roster.xlsx or upload an Excel/CSV roster above.")
         template = pd.DataFrame(columns=STAFF_COLUMNS)
+        manual_staff = st.data_editor(template, num_rows="dynamic", width="stretch", hide_index=True, key="manual_staff_roster")
+        if st.button("Save staff roster", type="primary"):
+            STAFF_SAVE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            manual_staff.to_csv(STAFF_SAVE_FILE, index=False)
+            st.success("Staff roster saved. It will load automatically next time.")
         st.download_button(
             "Download staff roster template",
             template.to_csv(index=False).encode("utf-8"),
@@ -522,7 +539,11 @@ with tab_staff:
         if active_status.any():
             staff_filtered = staff_filtered[active_status]
         st.metric("Staff shown", f"{len(staff_filtered):,}")
-        st.dataframe(staff_filtered, width="stretch", hide_index=True)
+        edited_staff = st.data_editor(staff_filtered, num_rows="dynamic", width="stretch", hide_index=True, key="staff_roster_editor")
+        if st.button("Save staff roster", type="primary"):
+            STAFF_SAVE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            edited_staff.to_csv(STAFF_SAVE_FILE, index=False)
+            st.success("Staff roster saved. Click Reload Excel files to refresh shared filters.")
         st.download_button(
             "Download filtered staff roster",
             staff_filtered.to_csv(index=False).encode("utf-8"),
