@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 import plotly.express as px
@@ -47,6 +47,11 @@ PARTNER_FILES = {
     "COSOC": "partner_files/COSOC_Monitoring Matrix.xlsx",
     "SHANTI": "partner_files/SHANTI_Monitoring Matrix.xlsx",
 }
+STAFF_FILE = Path("partner_files/Staff_Roster.xlsx")
+STAFF_COLUMNS = [
+    "Name", "Position", "Duty Station", "Partner", "District", "Palika",
+    "Phone", "Email", "Status",
+]
 
 PROJECT_START = date(2026, 9, 15)
 PROJECT_END = date(2026, 12, 31)
@@ -145,7 +150,46 @@ def chart_theme(figure):
     return figure
 
 
+def latest_source_update():
+    source_paths = [Path(path) for path in PARTNER_FILES.values() if Path(path).exists()]
+    if STAFF_FILE.exists():
+        source_paths.append(STAFF_FILE)
+    if not source_paths:
+        return "No source files found"
+    latest_time = max(path.stat().st_mtime for path in source_paths)
+    return datetime.fromtimestamp(latest_time).strftime("%d %b %Y, %H:%M")
+
+
+def read_staff_roster(uploaded_file=None):
+    try:
+        if uploaded_file is not None:
+            if uploaded_file.name.lower().endswith(".csv"):
+                roster = pd.read_csv(uploaded_file)
+            else:
+                roster = pd.read_excel(uploaded_file)
+        elif STAFF_FILE.exists():
+            roster = pd.read_excel(STAFF_FILE)
+        else:
+            return pd.DataFrame(columns=STAFF_COLUMNS), None
+    except Exception as error:
+        return pd.DataFrame(columns=STAFF_COLUMNS), str(error)
+
+    normalized = {str(column).strip().lower(): column for column in roster.columns}
+    renamed = {}
+    for column in STAFF_COLUMNS:
+        source_column = normalized.get(column.lower())
+        if source_column is not None:
+            renamed[source_column] = column
+    roster = roster.rename(columns=renamed)
+    for column in STAFF_COLUMNS:
+        if column not in roster.columns:
+            roster[column] = ""
+    return roster[STAFF_COLUMNS].fillna(""), None
+
+
 df_master, load_errors = load_all_partners()
+staff_master, staff_load_error = read_staff_roster()
+last_updated = latest_source_update()
 
 st.markdown(
     """
@@ -183,12 +227,21 @@ with st.sidebar:
         selection_mode="multi",
     )
 
-    district_values = sorted(value for value in df_master["District"].dropna().astype(str).unique() if value.strip())
+    monitoring_districts = df_master["District"].dropna().astype(str).tolist()
+    staff_districts = staff_master["District"].dropna().astype(str).tolist()
+    district_values = sorted({value.strip() for value in monitoring_districts + staff_districts if value.strip() and value.lower() != "nan"})
     selected_district = st.selectbox("📍 District", ["All districts"] + district_values)
 
     partner_df = df_master if selected_partner == "All partners" else df_master[df_master["Partner"] == selected_partner]
     district_df = partner_df if selected_district == "All districts" else partner_df[partner_df["District"].astype(str) == selected_district]
-    palika_values = sorted(value for value in district_df["Municipality"].dropna().astype(str).unique() if value.strip() and value.lower() != "nan")
+    staff_scope = staff_master
+    if selected_partner != "All partners":
+        staff_scope = staff_scope[staff_scope["Partner"].astype(str) == selected_partner]
+    if selected_district != "All districts":
+        staff_scope = staff_scope[staff_scope["District"].astype(str) == selected_district]
+    monitoring_palikas = district_df["Municipality"].dropna().astype(str).tolist()
+    staff_palikas = staff_scope["Palika"].dropna().astype(str).tolist()
+    palika_values = sorted({value.strip() for value in monitoring_palikas + staff_palikas if value.strip() and value.lower() != "nan"})
     selected_palika = st.selectbox("🏘️ Palika / Municipality", ["All Palikas"] + palika_values)
 
     output_values = sorted(df_master["Result Area"].dropna().astype(str).unique())
@@ -229,8 +282,8 @@ for column, (title, value, subtitle) in zip((m1, m2, m3, m4), metrics):
     with column:
         st.markdown(f'<div class="metric-card"><div class="metric-title">{title}</div><div class="metric-value">{value}</div><div class="metric-sub">{subtitle}</div></div>', unsafe_allow_html=True)
 
-tab_overview, tab_partner, tab_period, tab_trends, tab_monitoring, tab_data = st.tabs(
-    ["Overview", "Partners", "Daily / Weekly", "Partner trends", "Monitoring", "Data & export"]
+tab_overview, tab_partner, tab_period, tab_trends, tab_percentage, tab_monitoring, tab_staff, tab_data = st.tabs(
+    ["Overview", "Partners", "Daily / Weekly", "Partner trends", "Progress %", "Monitoring", "Staff roster", "Data & export"]
 )
 
 with tab_overview:
@@ -312,6 +365,50 @@ with tab_trends:
         },
     )
 
+with tab_percentage:
+    st.subheader("Progress percentage focus")
+    st.caption(f"Latest source update: {last_updated}. Completion is weighted by target for the selected data.")
+    percentage_left, percentage_right = st.columns([6, 4])
+    with percentage_left:
+        percentage_partner = filtered_df.groupby("Partner", as_index=False)[["Target", "Progress"]].sum()
+        percentage_partner["Completion %"] = (
+            percentage_partner["Progress"] / percentage_partner["Target"].replace(0, 1) * 100
+        ).clip(0, 100).round(1)
+        percentage_chart = px.bar(
+            percentage_partner.sort_values("Completion %"),
+            x="Completion %",
+            y="Partner",
+            color="Completion %",
+            orientation="h",
+            text="Completion %",
+            range_x=[0, 100],
+            color_continuous_scale=["#dc2626", "#e4a11b", "#20965a"],
+            title="Completion percentage by partner",
+        )
+        percentage_chart.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+        percentage_chart.update_layout(coloraxis_showscale=False, xaxis_title="Completion (%)")
+        st.plotly_chart(chart_theme(percentage_chart), width="stretch")
+    with percentage_right:
+        st.metric("Overall completion", f"{completion:.1f}%")
+        st.metric("Progress recorded", f"{total_progress:,.0f}")
+        st.metric("Remaining target", f"{remaining:,.0f}")
+        st.info("Progress percentage is calculated as cumulative progress divided by target.")
+
+    output_percentage = filtered_df.groupby("Result Area", as_index=False)[["Target", "Progress"]].sum()
+    output_percentage["Completion %"] = (
+        output_percentage["Progress"] / output_percentage["Target"].replace(0, 1) * 100
+    ).clip(0, 100).round(1)
+    st.dataframe(
+        output_percentage.sort_values("Completion %"),
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Target": st.column_config.NumberColumn(format="%,.0f"),
+            "Progress": st.column_config.NumberColumn(format="%,.0f"),
+            "Completion %": st.column_config.NumberColumn(format="%.1f%%"),
+        },
+    )
+
 with tab_monitoring:
     st.subheader("Progress monitoring and follow-up risk")
     st.caption("Use the gap and risk views to prioritize support. Rows without a target are shown separately and are not treated as high risk.")
@@ -329,6 +426,42 @@ with tab_monitoring:
         ),
         axis=1,
     )
+
+with tab_staff:
+    st.subheader("Staff currently assigned to flood response")
+    st.caption("Roster fields: name, position, duty station, partner, district, Palika, phone, email, and status.")
+    uploaded_staff = st.file_uploader("Upload staff roster", type=["xlsx", "csv"], help="Use this for a temporary review, or save the file as partner_files/Staff_Roster.xlsx for automatic loading.")
+    staff_df, staff_error = read_staff_roster(uploaded_staff)
+    if staff_error:
+        st.error(f"Could not read the staff roster: {staff_error}")
+    if staff_df.empty:
+        st.info("No staff roster has been added yet. Add partner_files/Staff_Roster.xlsx or upload an Excel/CSV roster above.")
+        template = pd.DataFrame(columns=STAFF_COLUMNS)
+        st.download_button(
+            "Download staff roster template",
+            template.to_csv(index=False).encode("utf-8"),
+            "Staff_Roster_Template.csv",
+            "text/csv",
+        )
+    else:
+        staff_filtered = staff_df.copy()
+        if selected_partner != "All partners":
+            staff_filtered = staff_filtered[staff_filtered["Partner"].astype(str) == selected_partner]
+        if selected_district != "All districts":
+            staff_filtered = staff_filtered[staff_filtered["District"].astype(str) == selected_district]
+        if selected_palika != "All Palikas":
+            staff_filtered = staff_filtered[staff_filtered["Palika"].astype(str) == selected_palika]
+        active_status = staff_filtered["Status"].astype(str).str.strip().str.lower().isin(["active", "onboarded", "assigned", "current"])
+        if active_status.any():
+            staff_filtered = staff_filtered[active_status]
+        st.metric("Staff shown", f"{len(staff_filtered):,}")
+        st.dataframe(staff_filtered, width="stretch", hide_index=True)
+        st.download_button(
+            "Download filtered staff roster",
+            staff_filtered.to_csv(index=False).encode("utf-8"),
+            "Staff_Roster_Filtered.csv",
+            "text/csv",
+        )
     risk_rows = monitoring[monitoring["Priority"] != "No target"].copy()
     high_risk_count = int((risk_rows["Priority"] == "High").sum())
     watch_count = int((risk_rows["Priority"] == "Watch").sum())
