@@ -1,218 +1,240 @@
-import streamlit as st
-import pandas as pd
-import glob
-import os
+from pathlib import Path
 
-# Page Configuration
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
+
 st.set_page_config(
-    page_title="UNICEF Emergency Flood Response Dashboard",
+    page_title="UNICEF Flood Response Dashboard",
     page_icon="💧",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# UNICEF Brand CSS Styling
-st.markdown("""
+st.markdown(
+    """
     <style>
-    .overall-card {
-        background-color: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 12px;
-        padding: 24px;
-        box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.02);
-        margin-bottom: 20px;
-    }
-    .big-percent {
-        font-size: 48px;
-        font-weight: 800;
-        color: #00ADEF;
-        line-height: 1;
-    }
-    .card-subtitle {
-        font-size: 14px;
-        color: #64748B;
-        margin-top: 8px;
-    }
-    .status-text {
-        font-size: 14px;
-        font-weight: 500;
-        color: #334155;
-    }
-    .kpi-card {
-        background-color: #FFFFFF;
-        padding: 16px;
-        border-radius: 8px;
-        border-left: 5px solid #00ADEF;
-        box-shadow: 0px 2px 4px rgba(0,0,0,0.05);
-    }
-    .kpi-title { font-size: 13px; color: #555555; margin-bottom: 4px; }
-    .kpi-value { font-size: 22px; font-weight: bold; color: #00ADEF; }
+    :root { --ink:#243331; --muted:#687673; --teal:#0f626b; --line:#d9e2e0; --paper:#fff; --canvas:#f3f6f5; }
+    .stApp { background:var(--canvas); color:var(--ink); }
+    [data-testid="stHeader"] { background:transparent; }
+    .block-container { max-width:1400px; padding:22px 32px 56px; }
+    .hero { background:var(--teal); border-radius:18px; color:white; padding:25px 28px; margin-bottom:22px; }
+    .hero h1 { margin:0; color:white; font-size:29px; }
+    .hero p { margin:7px 0 0; color:#d8e8e9; font-size:15px; }
+    .metric-card { background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:17px; min-height:104px; }
+    .metric-title { color:#64748b; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; }
+    .metric-value { color:#0f172a; font-size:27px; font-weight:750; margin-top:6px; }
+    .metric-sub { color:#1594a2; font-size:12px; font-weight:600; margin-top:3px; }
+    .section { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:13px 18px 4px; margin:20px 0 10px; }
+    .section h4 { color:#0f172a; font-size:16px; margin:0 0 2px; }
+    .section p { color:#64748b; font-size:13px; margin:0 0 9px; }
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-# Helper function to safely find column names regardless of exact casing/naming
-def find_column(df, possible_names):
-    for col in df.columns:
-        clean_col = str(col).strip().lower()
-        for name in possible_names:
-            if name.lower() in clean_col:
-                return col
+PARTNER_FILES = {
+    "CDC": "partner_files/CDC_Monitoring Matrix.xlsx",
+    "Chaya": "partner_files/Chaya_Monitoring Matrix.xlsx",
+    "COSOC": "partner_files/COSOC_Monitoring Matrix.xlsx",
+    "SHANTI": "partner_files/SHANTI_Monitoring Matrix.xlsx",
+}
+
+
+def numeric_series(series):
+    values = series.astype("string").str.replace(",", "", regex=False)
+    extracted = values.str.extract(r"(-?\d+(?:\.\d+)?)", expand=False)
+    return pd.to_numeric(extracted, errors="coerce").fillna(0)
+
+
+def find_header_row(raw):
+    for row_number, row in raw.iterrows():
+        if row.astype("string").str.strip().str.upper().eq("SN").any():
+            return row_number
     return None
 
-# Load data from all 4 partner matrices
+
+def read_partner_sheet(file_path, partner, sheet_name):
+    raw = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
+    header_row = find_header_row(raw)
+    if header_row is None:
+        return pd.DataFrame()
+
+    header_values = raw.iloc[header_row].astype("string").str.strip().str.upper()
+    sn_column = header_values.eq("SN").idxmax()
+    data = raw.iloc[header_row + 1:].copy()
+    is_daily = "daily" in sheet_name.lower()
+    relative_columns = list(range(8)) + (list(range(8, 12)) if is_daily else [9, 10, 11, 12])
+    source_columns = [sn_column + offset for offset in relative_columns]
+    if max(source_columns) >= data.shape[1]:
+        return pd.DataFrame()
+
+    data = data.iloc[:, source_columns].copy()
+    data.columns = [
+        "SN", "Agency", "Province", "District", "Municipality", "Ward",
+        "Result Statement", "Indicator", "Unit", "Target", "Progress", "Activities",
+    ]
+    data = data[data["Indicator"].notna()].copy()
+    data = data[
+        ~data["Indicator"].astype("string").str.strip().str.lower().eq("performance indicator/s")
+    ]
+    data["Result Statement"] = data["Result Statement"].ffill()
+    data["Result Area"] = data["Result Statement"].astype("string").str.split("\n").str[0]
+    data["Target"] = numeric_series(data["Target"])
+    data["Progress"] = numeric_series(data["Progress"])
+    data["Partner"] = partner
+    data["Frequency"] = "Daily" if is_daily else "Weekly"
+    data["Source Sheet"] = sheet_name
+    data["Row ID"] = [f"{partner}|{sheet_name}|{index}" for index in data.index]
+    return data.reset_index(drop=True)
+
+
 @st.cache_data
 def load_all_partners():
-    partner_mapping = {
-        "CDC": "partner_files/CDC_Monitoring Matrix.xlsx",
-        "Chaya": "partner_files/Chaya_Monitoring Matrix.xlsx",
-        "COSOC": "partner_files/COSOC_Monitoring Matrix.xlsx",
-        "SHANTI": "partner_files/SHANTI_Monitoring Matrix.xlsx"
-    }
-    
-    combined_dfs = []
-    
-    for partner_name, file_path in partner_mapping.items():
-        if os.path.exists(file_path):
-            try:
-                # Search for all sheets or default first sheet
-                xls = pd.ExcelFile(file_path)
-                for sheet in xls.sheet_names:
-                    df = pd.read_excel(file_path, sheet_name=sheet)
-                    if not df.empty and len(df.columns) > 1:
-                        df['Partner'] = partner_name
-                        combined_dfs.append(df)
-            except Exception:
-                pass
-            
-    if combined_dfs:
-        return pd.concat(combined_dfs, ignore_index=True)
-    else:
-        # Fallback dummy data structure matching target districts
-        return pd.DataFrame({
-            "District": ["Rasuwa", "Dhading", "Nuwakot", "Gorkha", "Tanahu", "Rasuwa", "Dhading"],
-            "Municipality": ["Gosaikunda", "Nilkanth", "Bidur", "Gorkha", "Vyas", "Uttargaya", "Gajuri"],
-            "Partner": ["Chaya", "CDC", "COSOC", "SHANTI", "CDC", "Chaya", "CDC"],
-            "Target_Beneficiaries": [1000, 1500, 1200, 2000, 800, 1100, 950],
-            "Reached_Beneficiaries": [850, 1200, 600, 1900, 800, 950, 400],
-            "Kits_Distributed": [200, 300, 150, 400, 160, 210, 80],
-            "Status": ["Achieved", "In Progress", "In Progress", "Achieved", "Achieved", "Achieved", "Not Started"]
-        })
+    frames = []
+    errors = []
+    for partner, relative_path in PARTNER_FILES.items():
+        file_path = Path(relative_path)
+        if not file_path.exists():
+            errors.append(f"{partner}: file not found ({relative_path})")
+            continue
+        try:
+            workbook = pd.ExcelFile(file_path)
+            for sheet_name in workbook.sheet_names:
+                sheet_data = read_partner_sheet(file_path, partner, sheet_name)
+                if not sheet_data.empty:
+                    frames.append(sheet_data)
+        except Exception as error:
+            errors.append(f"{partner}: {error}")
 
-df_master = load_all_partners()
+    if not frames:
+        return pd.DataFrame(), errors
+    return pd.concat(frames, ignore_index=True), errors
 
-# Standardize Key Column Name Detection
-district_col = find_column(df_master, ["district", "dist"]) or "District"
-status_col = find_column(df_master, ["status", "progress", "state", "achievement"])
-target_col = find_column(df_master, ["target", "planned"])
-reached_col = find_column(df_master, ["reached", "achieved", "beneficiaries"])
-kits_col = find_column(df_master, ["kit", "material", "item"])
 
-# Header
-st.title("💧 UNICEF Emergency Flood Response Dashboard")
-st.markdown("Multi-Partner & Multi-District Monitoring across **Rasuwa, Dhading, Nuwakot, Gorkha, and Tanahu**.")
+def chart_theme(figure):
+    figure.update_layout(
+        template="plotly_white",
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+        font=dict(color="#243331"),
+        margin=dict(l=10, r=20, t=45, b=20),
+    )
+    return figure
 
-# Filter by District
-st.write("**Filter by District:**")
-district_list = ["All Districts", "Rasuwa", "Dhading", "Nuwakot", "Gorkha", "Tanahu"]
-selected_district = st.pills("District Selector", district_list, default="All Districts", label_visibility="collapsed")
 
-# Sidebar Filter for Partners
-st.sidebar.title("Partner Filter")
-partners_list = ["All Partners", "CDC", "Chaya", "COSOC", "SHANTI"]
-selected_partner = st.sidebar.selectbox("Select Partner:", partners_list)
+df_master, load_errors = load_all_partners()
 
-# Data Filtering Logic
-filtered_df = df_master.copy()
-
-if selected_district != "All Districts" and district_col in filtered_df.columns:
-    filtered_df = filtered_df[filtered_df[district_col].astype(str).str.lower().str.contains(selected_district.lower())]
-
-if selected_partner != "All Partners" and "Partner" in filtered_df.columns:
-    filtered_df = filtered_df[filtered_df["Partner"] == selected_partner]
-
-# Safe Progress Calculations
-total_records = len(filtered_df)
-
-if status_col and status_col in filtered_df.columns:
-    status_series = filtered_df[status_col].astype(str).str.lower()
-    achieved_count = len(filtered_df[status_series.str.contains("achieved|completed|100%|done|yes")])
-    in_progress_count = len(filtered_df[status_series.str.contains("progress|ongoing|started")])
-    not_started_count = len(filtered_df[status_series.str.contains("not started|pending|0%|no")])
-else:
-    achieved_count, in_progress_count, not_started_count = 0, 0, total_records
-
-overall_pct = int((achieved_count / total_records * 100)) if total_records > 0 else 0
-
-# Visual Overall Progress Card
-st.markdown(f"""
-    <div class="overall-card">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <div class="big-percent">{overall_pct}%</div>
-                <div class="card-subtitle">Overall progress across {total_records} response indicators</div>
-            </div>
-            <div style="text-align: right;">
-                <p class="status-text"><span style="color: #10B981;">✓</span> &nbsp; <b>{achieved_count}</b> achieved</p>
-                <p class="status-text"><span style="color: #00ADEF;">⚡</span> &nbsp; <b>{in_progress_count}</b> in progress</p>
-                <p class="status-text"><span style="color: #6B7280;">ⓘ</span> &nbsp; <b>{not_started_count}</b> not started</p>
-            </div>
-        </div>
+st.markdown(
+    """
+    <div class="hero">
+        <h1>UNICEF Flood Response Dashboard</h1>
+        <p>Multi-partner WASH monitoring across target districts, municipalities, and reporting periods.</p>
     </div>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-# Navigation Tabs
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "Overview", 
-    "Activities", 
-    "Daily Log", 
-    "Trends", 
-    "Monitoring", 
-    "Data editor"
-])
+if load_errors:
+    with st.expander("Data loading warnings"):
+        for error in load_errors:
+            st.warning(error)
 
-# ---------------- Tab 1: Overview ----------------
-with tab1:
-    st.subheader("Key Response Metrics")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    total_target = pd.to_numeric(filtered_df[target_col], errors='coerce').sum() if target_col else 0
-    total_reached = pd.to_numeric(filtered_df[reached_col], errors='coerce').sum() if reached_col else 0
-    total_kits = pd.to_numeric(filtered_df[kits_col], errors='coerce').sum() if kits_col else 0
-    reach_pct = (total_reached / total_target * 100) if total_target > 0 else 0
-    
-    with col1:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-title">Target Beneficiaries</div><div class="kpi-value">{int(total_target):,}</div></div>', unsafe_allow_html=True)
-    with col2:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-title">Reached Beneficiaries</div><div class="kpi-value">{int(total_reached):,}</div></div>', unsafe_allow_html=True)
-    with col3:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-title">Kits Distributed</div><div class="kpi-value">{int(total_kits):,}</div></div>', unsafe_allow_html=True)
-    with col4:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-title">Beneficiary Reach (%)</div><div class="kpi-value">{reach_pct:.1f}%</div></div>', unsafe_allow_html=True)
-        
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("Partner & District Data Matrix")
-    st.dataframe(filtered_df, use_container_width=True)
+if df_master.empty:
+    st.error("No valid monitoring rows were loaded. Check the Excel files and refresh the page.")
+    st.stop()
 
-# ---------------- Tab 2: Activities ----------------
-with tab2:
-    st.subheader("Activities Breakdown")
-    st.dataframe(filtered_df, use_container_width=True)
+with st.sidebar:
+    st.header("Filters")
+    if st.button("Reload Excel files", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+    selected_partners = st.multiselect(
+        "Partners", sorted(df_master["Partner"].unique()), default=sorted(df_master["Partner"].unique())
+    )
+    selected_frequency = st.multiselect(
+        "Reporting period", ["Daily", "Weekly"], default=["Daily", "Weekly"]
+    )
+    district_values = sorted(value for value in df_master["District"].dropna().astype(str).unique() if value.strip())
+    selected_districts = st.multiselect("Districts", district_values, default=district_values)
+    output_values = sorted(df_master["Result Area"].dropna().astype(str).unique())
+    selected_outputs = st.multiselect("Output areas", output_values, default=output_values)
 
-# ---------------- Tab 3: Daily Log ----------------
-with tab3:
-    st.subheader("Daily Field Submissions")
-    st.info("Field updates logged per district and partner.")
+filtered_df = df_master[
+    df_master["Partner"].isin(selected_partners)
+    & df_master["Frequency"].isin(selected_frequency)
+    & df_master["Result Area"].isin(selected_outputs)
+].copy()
+if district_values:
+    filtered_df = filtered_df[filtered_df["District"].astype(str).isin(selected_districts)]
 
-# ---------------- Tab 4: Trends ----------------
-with tab4:
-    st.subheader("Progress Trends")
-    st.info("Timeline tracking of distribution and beneficiary reach.")
+if filtered_df.empty:
+    st.info("No rows match the selected filters.")
+    st.stop()
 
-# ---------------- Tab 5: Monitoring ----------------
-with tab5:
-    st.subheader("Field Monitoring & Quality Assurance")
-    st.info("Quality checks and field verification reports.")
+filtered_df["Completion %"] = (
+    filtered_df["Progress"] / filtered_df["Target"].replace(0, 1) * 100
+).clip(0, 100).round(1)
+total_target = filtered_df["Target"].sum()
+total_progress = filtered_df["Progress"].sum()
+completion = total_progress / total_target * 100 if total_target else 0
+remaining = max(total_target - total_progress, 0)
 
-# ---------------- Tab 6: Data Editor ----------------
-with tab6:
-    st.subheader("Live Data Editor")
-    st.data_editor(filtered_df, use_container_width=True)
+st.markdown('<div class="section"><h4>Response at a glance</h4><p>All values reflect the selected partners, reporting periods, districts, and outputs.</p></div>', unsafe_allow_html=True)
+m1, m2, m3, m4 = st.columns(4)
+metrics = [
+    ("Total target", f"{total_target:,.0f}", f"{len(filtered_df):,} indicators"),
+    ("Cumulative progress", f"{total_progress:,.0f}", "From partner matrices"),
+    ("Completion rate", f"{completion:.1f}%", "Weighted by target"),
+    ("Remaining gap", f"{remaining:,.0f}", "Target minus progress"),
+]
+for column, (title, value, subtitle) in zip((m1, m2, m3, m4), metrics):
+    with column:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">{title}</div><div class="metric-value">{value}</div><div class="metric-sub">{subtitle}</div></div>', unsafe_allow_html=True)
+
+tab_overview, tab_partner, tab_period, tab_monitoring, tab_data = st.tabs(
+    ["Overview", "Partners", "Daily / Weekly", "Monitoring", "Data & export"]
+)
+
+with tab_overview:
+    st.markdown('<div class="section"><h4>Target versus progress by output</h4><p>Use this view to see which response areas have the largest gaps.</p></div>', unsafe_allow_html=True)
+    output_summary = filtered_df.groupby("Result Area", as_index=False)[["Target", "Progress"]].sum()
+    chart_data = output_summary.melt("Result Area", var_name="Measure", value_name="Value")
+    chart_data["Measure"] = chart_data["Measure"].replace({"Progress": "Achieved"})
+    figure = px.bar(
+        chart_data, x="Value", y="Result Area", color="Measure", orientation="h", barmode="group",
+        color_discrete_map={"Target": "#e4a11b", "Achieved": "#0f626b"}, text="Value",
+    )
+    figure.update_traces(texttemplate="%{text:,.0f}", textposition="outside", cliponaxis=False)
+    st.plotly_chart(chart_theme(figure), use_container_width=True)
+
+with tab_partner:
+    partner_summary = filtered_df.groupby("Partner", as_index=False)[["Target", "Progress"]].sum()
+    partner_summary["Completion %"] = (partner_summary["Progress"] / partner_summary["Target"].replace(0, 1) * 100).clip(0, 100).round(1)
+    left, right = st.columns([6, 4])
+    with left:
+        partner_chart = px.bar(partner_summary, x="Partner", y=["Target", "Progress"], barmode="group", color_discrete_map={"Target": "#e4a11b", "Progress": "#0f626b"})
+        st.plotly_chart(chart_theme(partner_chart), use_container_width=True)
+    with right:
+        st.dataframe(partner_summary, use_container_width=True, hide_index=True, column_config={"Completion %": st.column_config.NumberColumn(format="%.1f%%")})
+
+with tab_period:
+    period_summary = filtered_df.groupby("Frequency", as_index=False)[["Target", "Progress"]].sum()
+    period_summary["Completion %"] = (period_summary["Progress"] / period_summary["Target"].replace(0, 1) * 100).clip(0, 100).round(1)
+    period_chart = px.bar(period_summary, x="Frequency", y=["Target", "Progress"], barmode="group", color_discrete_map={"Target": "#e4a11b", "Progress": "#0f626b"})
+    st.plotly_chart(chart_theme(period_chart), use_container_width=True)
+    st.dataframe(filtered_df[["Partner", "Frequency", "District", "Municipality", "Indicator", "Target", "Progress", "Completion %", "Activities"]], use_container_width=True, hide_index=True)
+
+with tab_monitoring:
+    monitoring = filtered_df.groupby(["Partner", "Result Area"], as_index=False)[["Target", "Progress"]].sum()
+    monitoring["Completion %"] = (monitoring["Progress"] / monitoring["Target"].replace(0, 1) * 100).clip(0, 100).round(1)
+    monitoring["Priority"] = monitoring["Completion %"].apply(lambda value: "High" if value < 25 else ("Watch" if value < 75 else "On track"))
+    st.dataframe(monitoring.sort_values(["Priority", "Completion %"]), use_container_width=True, hide_index=True)
+
+with tab_data:
+    st.subheader("Data review and export")
+    st.caption("Update the four Excel files for permanent changes, then click Reload Excel files in the sidebar. This table is a filtered review of the current source data.")
+    export_columns = ["Row ID", "Partner", "Frequency", "District", "Municipality", "Indicator", "Target", "Progress", "Activities"]
+    st.dataframe(filtered_df[export_columns], use_container_width=True, hide_index=True)
+    st.download_button("Download filtered CSV", filtered_df[export_columns].to_csv(index=False).encode("utf-8"), "flood_response_filtered.csv", "text/csv")
