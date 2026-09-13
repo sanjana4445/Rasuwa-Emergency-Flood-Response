@@ -315,10 +315,6 @@ tab_overview, tab_partner, tab_period, tab_trends, tab_percentage, tab_monitorin
 )
 
 with tab_overview:
-    st.markdown(
-        f'''<div class="progress-focus"><div class="progress-focus-label">Overall response progress</div><div class="progress-focus-value">{completion:.1f}%</div><div class="progress-track"><div class="progress-fill" style="width:{min(max(completion, 0), 100):.1f}%;"></div></div></div>''',
-        unsafe_allow_html=True,
-    )
     st.markdown('<div class="section"><h4>Target versus progress by output</h4><p>Use this view to see which response areas have the largest gaps.</p></div>', unsafe_allow_html=True)
     output_summary = filtered_df.groupby("Result Area", as_index=False)[["Target", "Progress"]].sum()
     chart_data = output_summary.melt("Result Area", var_name="Measure", value_name="Value")
