@@ -287,15 +287,9 @@ total_progress = filtered_df["Progress"].sum()
 completion = total_progress / total_target * 100 if total_target else 0
 remaining = max(total_target - total_progress, 0)
 
-m1, m2, m3 = st.columns(3)
-metrics = [
-    ("Total progress", f"{completion:.1f}%", "Weighted by target"),
-    ("Time elapsed", f"{TIME_LAPSE_PERCENTAGE:.1f}%", f"{PROJECT_STATUS}"),
-    ("Last updated", last_updated, "Partner source files"),
-]
-for column, (title, value, subtitle) in zip((m1, m2, m3), metrics):
-    with column:
-        st.markdown(f'<div class="metric-card"><div class="metric-title">{title}</div><div class="metric-value">{value}</div><div class="metric-sub">{subtitle}</div></div>', unsafe_allow_html=True)
+m1 = st.columns(1)
+with m1[0]:
+    st.markdown(f'<div class="metric-card"><div class="metric-title">Last updated</div><div class="metric-value">{last_updated}</div><div class="metric-sub">Partner source files</div></div>', unsafe_allow_html=True)
 
 output_totals = filtered_df.groupby("Result Area", as_index=False)[["Target", "Progress"]].sum()
 columns_per_row = min(4, len(output_totals))
