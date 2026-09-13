@@ -7,7 +7,7 @@ import streamlit as st
 
 
 st.set_page_config(
-    page_title="UNICEF Flood Response Dashboard",
+    page_title="Rasuwa Emergency Flood Response",
     page_icon="💧",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -16,11 +16,11 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    :root { --ink:#1f2937; --muted:#64748b; --unicef-blue:#00aeef; --unicef-deep:#0072bc; --teal:#0072bc; --green:#20965a; --line:#cbd5e1; --paper:#fff; --canvas:#f2f8fc; }
+    :root { --ink:#1f2937; --muted:#64748b; --rasuwa-blue:#00aeef; --rasuwa-deep:#0072bc; --teal:#0072bc; --green:#20965a; --line:#cbd5e1; --paper:#fff; --canvas:#f2f8fc; }
     .stApp { background:var(--canvas); color:var(--ink); }
     [data-testid="stHeader"] { background:transparent; }
     .block-container { max-width:1400px; padding:16px 32px 44px; }
-    .hero { background:linear-gradient(115deg, var(--unicef-deep), var(--unicef-blue)); border-radius:16px; color:white; padding:18px 24px; margin-bottom:14px; }
+    .hero { background:linear-gradient(115deg, var(--rasuwa-deep), var(--rasuwa-blue)); border-radius:16px; color:white; padding:18px 24px; margin-bottom:14px; }
     .hero h1 { margin:0; color:white; font-size:26px; }
     .hero p { margin:4px 0 0; color:#d8e8e9; font-size:14px; }
     .metric-card { background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px 15px; min-height:88px; }
@@ -28,23 +28,23 @@ st.markdown(
     .metric-value { color:#0f172a; font-size:25px; font-weight:750; margin-top:4px; }
     .metric-sub { color:#1594a2; font-size:12px; font-weight:600; margin-top:3px; }
     .output-breakdown { background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:11px 13px; margin-bottom:8px; }
-    .output-breakdown-title { color:var(--unicef-deep); font-size:13px; font-weight:750; margin-bottom:7px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .output-breakdown-title { color:var(--rasuwa-deep); font-size:13px; font-weight:750; margin-bottom:7px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .output-breakdown-label { color:#64748b; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.35px; }
     .output-breakdown-value { color:#0f172a; font-size:19px; font-weight:750; margin-top:2px; }
     .output-breakdown-divider { border-left:1px solid var(--line); }
-    .progress-focus { background:#ffffff; border:1px solid #b9ddec; border-left:6px solid var(--unicef-blue); border-radius:14px; padding:18px 22px; margin:18px 0; }
+    .progress-focus { background:#ffffff; border:1px solid #b9ddec; border-left:6px solid var(--rasuwa-blue); border-radius:14px; padding:18px 22px; margin:18px 0; }
     .progress-focus-label { color:#64748b; font-size:12px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; }
-    .progress-focus-value { color:var(--unicef-deep); font-size:42px; font-weight:800; line-height:1.1; margin-top:3px; }
+    .progress-focus-value { color:var(--rasuwa-deep); font-size:42px; font-weight:800; line-height:1.1; margin-top:3px; }
     .progress-track { background:#e2e8f0; border-radius:999px; height:10px; margin-top:12px; overflow:hidden; }
-    .progress-fill { background:linear-gradient(90deg, var(--unicef-blue), var(--green)); border-radius:999px; height:100%; }
+    .progress-fill { background:linear-gradient(90deg, var(--rasuwa-blue), var(--green)); border-radius:999px; height:100%; }
     .section { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:10px 16px 2px; margin:12px 0 7px; }
     .section h4 { color:#0f172a; font-size:16px; margin:0 0 2px; }
     .section p { color:#64748b; font-size:13px; margin:0 0 9px; }
     [data-testid="stSidebar"] { background:#eef7fc; border-right:1px solid #c7e7f5; }
-    [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 { color:var(--unicef-deep); }
+    [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 { color:var(--rasuwa-deep); }
     [data-testid="stPills"] button[aria-pressed="true"] { background:var(--green) !important; border-color:var(--green) !important; color:white !important; }
     [data-testid="stPills"] button[aria-pressed="false"] { background:white !important; border-color:var(--line) !important; color:var(--ink) !important; }
-    [data-testid="stPills"] button:hover { border-color:var(--unicef-blue) !important; }
+    [data-testid="stPills"] button:hover { border-color:var(--rasuwa-blue) !important; }
     .filter-help { color:var(--muted); font-size:12px; margin:0 0 8px; }
     </style>
     """,
@@ -211,7 +211,7 @@ last_updated = latest_source_update()
 st.markdown(
     """
     <div class="hero">
-        <h1>💧 UNICEF Flood Response Dashboard</h1>
+        <h1>💧 Rasuwa Emergency Flood Response</h1>
         <p>Multi-partner WASH monitoring across target districts, municipalities, and reporting periods.</p>
         <p>📅 Project period: 15 September 2026 - 31 December 2026</p>
     </div>
