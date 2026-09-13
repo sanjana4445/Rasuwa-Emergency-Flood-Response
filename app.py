@@ -19,25 +19,25 @@ st.markdown(
     :root { --ink:#1f2937; --muted:#64748b; --unicef-blue:#00aeef; --unicef-deep:#0072bc; --teal:#0072bc; --green:#20965a; --line:#cbd5e1; --paper:#fff; --canvas:#f2f8fc; }
     .stApp { background:var(--canvas); color:var(--ink); }
     [data-testid="stHeader"] { background:transparent; }
-    .block-container { max-width:1400px; padding:22px 32px 56px; }
-    .hero { background:linear-gradient(115deg, var(--unicef-deep), var(--unicef-blue)); border-radius:18px; color:white; padding:25px 28px; margin-bottom:22px; }
-    .hero h1 { margin:0; color:white; font-size:29px; }
-    .hero p { margin:7px 0 0; color:#d8e8e9; font-size:15px; }
-    .metric-card { background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:17px; min-height:104px; }
+    .block-container { max-width:1400px; padding:16px 32px 44px; }
+    .hero { background:linear-gradient(115deg, var(--unicef-deep), var(--unicef-blue)); border-radius:16px; color:white; padding:18px 24px; margin-bottom:14px; }
+    .hero h1 { margin:0; color:white; font-size:26px; }
+    .hero p { margin:4px 0 0; color:#d8e8e9; font-size:14px; }
+    .metric-card { background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px 15px; min-height:88px; }
     .metric-title { color:#64748b; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; }
-    .metric-value { color:#0f172a; font-size:27px; font-weight:750; margin-top:6px; }
+    .metric-value { color:#0f172a; font-size:25px; font-weight:750; margin-top:4px; }
     .metric-sub { color:#1594a2; font-size:12px; font-weight:600; margin-top:3px; }
-    .output-breakdown { background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:12px; }
-    .output-breakdown-title { color:var(--unicef-deep); font-size:14px; font-weight:750; margin-bottom:10px; }
+    .output-breakdown { background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:11px 13px; margin-bottom:8px; }
+    .output-breakdown-title { color:var(--unicef-deep); font-size:13px; font-weight:750; margin-bottom:7px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .output-breakdown-label { color:#64748b; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.35px; }
-    .output-breakdown-value { color:#0f172a; font-size:22px; font-weight:750; margin-top:3px; }
+    .output-breakdown-value { color:#0f172a; font-size:19px; font-weight:750; margin-top:2px; }
     .output-breakdown-divider { border-left:1px solid var(--line); }
     .progress-focus { background:#ffffff; border:1px solid #b9ddec; border-left:6px solid var(--unicef-blue); border-radius:14px; padding:18px 22px; margin:18px 0; }
     .progress-focus-label { color:#64748b; font-size:12px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; }
     .progress-focus-value { color:var(--unicef-deep); font-size:42px; font-weight:800; line-height:1.1; margin-top:3px; }
     .progress-track { background:#e2e8f0; border-radius:999px; height:10px; margin-top:12px; overflow:hidden; }
     .progress-fill { background:linear-gradient(90deg, var(--unicef-blue), var(--green)); border-radius:999px; height:100%; }
-    .section { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:13px 18px 4px; margin:20px 0 10px; }
+    .section { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:10px 16px 2px; margin:12px 0 7px; }
     .section h4 { color:#0f172a; font-size:16px; margin:0 0 2px; }
     .section p { color:#64748b; font-size:13px; margin:0 0 9px; }
     [data-testid="stSidebar"] { background:#eef7fc; border-right:1px solid #c7e7f5; }
@@ -298,9 +298,10 @@ for column, (title, value, subtitle) in zip((m1, m2, m3, m4), metrics):
 
 st.markdown('<div class="section"><h4>Target by output</h4><p>Total target and met target for each selected output area.</p></div>', unsafe_allow_html=True)
 output_totals = filtered_df.groupby("Result Area", as_index=False)[["Target", "Progress"]].sum()
-for output_start in range(0, len(output_totals), 2):
-    output_columns = st.columns(2)
-    for output_column, output_row in zip(output_columns, output_totals.iloc[output_start:output_start + 2].itertuples(index=False)):
+columns_per_row = min(4, len(output_totals))
+for output_start in range(0, len(output_totals), columns_per_row):
+    output_columns = st.columns(columns_per_row)
+    for output_column, output_row in zip(output_columns, output_totals.iloc[output_start:output_start + columns_per_row].itertuples(index=False)):
         with output_column:
             st.markdown(
                 f'''<div class="output-breakdown"><div class="output-breakdown-title">{output_row[0]}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;"><div><div class="output-breakdown-label">Total target</div><div class="output-breakdown-value">{output_row[1]:,.0f}</div></div><div class="output-breakdown-divider" style="padding-left:16px;"><div class="output-breakdown-label">Met target</div><div class="output-breakdown-value">{output_row[2]:,.0f}</div></div></div></div>''',
