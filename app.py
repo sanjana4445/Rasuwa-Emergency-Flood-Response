@@ -72,12 +72,15 @@ PROJECT_DAYS = (PROJECT_END - PROJECT_START).days + 1
 if TODAY < PROJECT_START:
     PROJECT_STATUS = f"Starts in {(PROJECT_START - TODAY).days} days"
     DAYS_REMAINING = PROJECT_DAYS
+    TIME_LAPSE_PERCENTAGE = 0
 elif TODAY <= PROJECT_END:
     PROJECT_STATUS = "Project active"
     DAYS_REMAINING = (PROJECT_END - TODAY).days + 1
+    TIME_LAPSE_PERCENTAGE = ((TODAY - PROJECT_START).days / PROJECT_DAYS * 100)
 else:
     PROJECT_STATUS = "Project ended"
     DAYS_REMAINING = 0
+    TIME_LAPSE_PERCENTAGE = 100
 
 
 def numeric_series(series):
@@ -284,15 +287,14 @@ total_progress = filtered_df["Progress"].sum()
 completion = total_progress / total_target * 100 if total_target else 0
 remaining = max(total_target - total_progress, 0)
 
-st.markdown('<div class="section"><h4>Response at a glance</h4><p>All values reflect the selected partners, reporting periods, districts, and outputs.</p></div>', unsafe_allow_html=True)
-m1, m2, m3, m4 = st.columns(4)
+st.markdown('<div class="section"><h4>Response at a glance</h4><p>Progress, project time-lapse, and source freshness for the selected data.</p></div>', unsafe_allow_html=True)
+m1, m2, m3 = st.columns(3)
 metrics = [
-    ("Total target", f"{total_target:,.0f}", f"{len(filtered_df):,} indicators"),
-    ("Cumulative progress", f"{total_progress:,.0f}", "From partner matrices"),
-    ("Completion rate", f"{completion:.1f}%", "Weighted by target"),
-    ("Remaining gap", f"{remaining:,.0f}", "Target minus progress"),
+    ("Total progress", f"{completion:.1f}%", "Weighted by target"),
+    ("Time elapsed", f"{TIME_LAPSE_PERCENTAGE:.1f}%", f"{PROJECT_STATUS}"),
+    ("Last updated", last_updated, "Partner source files"),
 ]
-for column, (title, value, subtitle) in zip((m1, m2, m3, m4), metrics):
+for column, (title, value, subtitle) in zip((m1, m2, m3), metrics):
     with column:
         st.markdown(f'<div class="metric-card"><div class="metric-title">{title}</div><div class="metric-value">{value}</div><div class="metric-sub">{subtitle}</div></div>', unsafe_allow_html=True)
 
