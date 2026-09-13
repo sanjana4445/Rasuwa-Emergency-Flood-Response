@@ -297,7 +297,6 @@ for column, (title, value, subtitle) in zip((m1, m2, m3), metrics):
     with column:
         st.markdown(f'<div class="metric-card"><div class="metric-title">{title}</div><div class="metric-value">{value}</div><div class="metric-sub">{subtitle}</div></div>', unsafe_allow_html=True)
 
-st.markdown('<div class="section"><h4>Target by output</h4><p>Total target and met target for each selected output area.</p></div>', unsafe_allow_html=True)
 output_totals = filtered_df.groupby("Result Area", as_index=False)[["Target", "Progress"]].sum()
 columns_per_row = min(4, len(output_totals))
 for output_start in range(0, len(output_totals), columns_per_row):
