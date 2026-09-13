@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from datetime import date, datetime
 
@@ -89,6 +90,22 @@ def numeric_series(series):
     return pd.to_numeric(extracted, errors="coerce").fillna(0)
 
 
+def normalize_agency_name(value):
+    return "Rasuwa Emergency Flood Response"
+
+
+def normalize_location_label(value):
+    text = str(value).strip()
+    if not text or text.lower() == "nan":
+        return ""
+    text = re.sub(r"\bRM\b", "Rural Municipality", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bMun\b", "Municipality", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bRural Municipality\s+Rural Municipality\b", "Rural Municipality", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bMunicipality\s+Municipality\b", "Municipality", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    return text
+
+
 def find_header_row(raw):
     for row_number, row in raw.iterrows():
         if row.astype("string").str.strip().str.upper().eq("SN").any():
@@ -122,6 +139,9 @@ def read_partner_sheet(file_path, partner, sheet_name):
     ]
     data["Result Statement"] = data["Result Statement"].ffill()
     data["Result Area"] = data["Result Statement"].astype("string").str.split("\n").str[0]
+    data["Agency"] = data["Agency"].map(normalize_agency_name)
+    data["District"] = data["District"].map(normalize_location_label)
+    data["Municipality"] = data["Municipality"].map(normalize_location_label)
     data["Target"] = numeric_series(data["Target"])
     data["Progress"] = numeric_series(data["Progress"])
     data["Partner"] = partner
@@ -131,7 +151,7 @@ def read_partner_sheet(file_path, partner, sheet_name):
     return data.reset_index(drop=True)
 
 
-@st.cache_data
+@st.cache_data(ttl=60)
 def load_all_partners():
     frames = []
     errors = []
@@ -152,6 +172,14 @@ def load_all_partners():
     if not frames:
         return pd.DataFrame(), errors
     return pd.concat(frames, ignore_index=True), errors
+
+
+def build_summary_table(frame, group_columns):
+    summary = frame.groupby(group_columns, as_index=False)[["Target", "Progress"]].sum()
+    summary["Completion %"] = (
+        summary["Progress"] / summary["Target"].replace(0, 1) * 100
+    ).clip(0, 100).round(1)
+    return summary
 
 
 def chart_theme(figure):
@@ -201,6 +229,10 @@ def read_staff_roster(uploaded_file=None):
     for column in STAFF_COLUMNS:
         if column not in roster.columns:
             roster[column] = ""
+    if "District" in roster.columns:
+        roster["District"] = roster["District"].map(normalize_location_label)
+    if "Palika" in roster.columns:
+        roster["Palika"] = roster["Palika"].map(normalize_location_label)
     return roster[STAFF_COLUMNS].fillna(""), None
 
 
@@ -259,7 +291,7 @@ with st.sidebar:
     monitoring_palikas = district_df["Municipality"].dropna().astype(str).tolist()
     staff_palikas = staff_scope["Palika"].dropna().astype(str).tolist()
     palika_values = sorted({value.strip() for value in monitoring_palikas + staff_palikas if value.strip() and value.lower() != "nan"})
-    selected_palika = st.selectbox("🏘️ Palika / Municipality", ["All Palikas"] + palika_values)
+    selected_palika = st.selectbox("🏘️ Rural Municipality / Municipality", ["All Rural Municipalities / Municipalities"] + palika_values)
 
     output_values = sorted(df_master["Result Area"].dropna().astype(str).unique())
     selected_outputs = st.multiselect("🎯 Output areas", output_values, default=output_values)
@@ -272,7 +304,7 @@ if selected_partner != "All partners":
     filtered_df = filtered_df[filtered_df["Partner"] == selected_partner]
 if selected_district != "All districts":
     filtered_df = filtered_df[filtered_df["District"].astype(str) == selected_district]
-if selected_palika != "All Palikas":
+if selected_palika != "All Rural Municipalities / Municipalities":
     filtered_df = filtered_df[filtered_df["Municipality"].astype(str) == selected_palika]
 
 if filtered_df.empty:
@@ -302,8 +334,8 @@ for output_start in range(0, len(output_totals), columns_per_row):
                 unsafe_allow_html=True,
             )
 
-tab_overview, tab_partner, tab_period, tab_trends, tab_monitoring, tab_staff, tab_data = st.tabs(
-    ["Overview", "Partners", "Daily / Weekly", "Partner trends", "Monitoring", "Staff roster", "Data & export"]
+tab_overview, tab_partner, tab_period, tab_trends, tab_geography, tab_monitoring, tab_staff, tab_data = st.tabs(
+    ["Overview", "Partners", "Daily / Weekly", "Partner trends", "District / Municipality", "Monitoring", "Staff roster", "Data & export"]
 )
 
 with tab_overview:
@@ -400,6 +432,50 @@ with tab_trends:
         },
     )
 
+with tab_geography:
+    st.subheader("District and municipality monitoring")
+    st.caption("Targets are summed across the partner's municipalities; beneficiary detail rows without a target are kept as progress-only records and are visible below the totals.")
+
+    district_summary = build_summary_table(filtered_df, ["District", "Municipality"])
+    partner_district_summary = build_summary_table(filtered_df, ["Partner", "District", "Municipality"])
+
+    left, right = st.columns([7, 3])
+    with left:
+        geo_chart = px.bar(
+            district_summary.sort_values("Progress", ascending=False),
+            x="Municipality",
+            y=["Target", "Progress"],
+            color="District",
+            barmode="group",
+            text="Progress",
+            title="Target vs progress by municipality",
+        )
+        geo_chart.update_traces(texttemplate="%{text:,.0f}", textposition="outside", cliponaxis=False)
+        st.plotly_chart(chart_theme(geo_chart), width="stretch")
+    with right:
+        st.dataframe(
+            district_summary[["District", "Municipality", "Target", "Progress", "Completion %"]],
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "Target": st.column_config.NumberColumn(format="%,.0f"),
+                "Progress": st.column_config.NumberColumn(format="%,.0f"),
+                "Completion %": st.column_config.NumberColumn(format="%.1f%%"),
+            },
+        )
+
+    st.markdown("#### Partner-by-district and municipality detail")
+    st.dataframe(
+        partner_district_summary.sort_values(["Partner", "District", "Municipality"]),
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Target": st.column_config.NumberColumn(format="%,.0f"),
+            "Progress": st.column_config.NumberColumn(format="%,.0f"),
+            "Completion %": st.column_config.NumberColumn(format="%.1f%%"),
+        },
+    )
+
 with tab_monitoring:
     st.subheader("Progress monitoring and follow-up risk")
     st.caption("Use the gap and risk views to prioritize support. Rows without a target are shown separately and are not treated as high risk.")
@@ -487,7 +563,7 @@ with tab_monitoring:
 
 with tab_staff:
     st.subheader("Staff currently assigned to flood response")
-    st.caption("Roster fields: name, position, duty station, partner, district, Palika, phone, email, and status.")
+    st.caption("Roster fields: name, position, duty station, partner, district, rural municipality / municipality, phone, email, and status.")
     uploaded_staff = st.file_uploader("Upload staff roster", type=["xlsx", "csv"], help="Use this for a temporary review, or save the file as partner_files/Staff_Roster.xlsx for automatic loading.")
     staff_df, staff_error = read_staff_roster(uploaded_staff)
     if staff_error:
@@ -512,7 +588,7 @@ with tab_staff:
             staff_filtered = staff_filtered[staff_filtered["Partner"].astype(str) == selected_partner]
         if selected_district != "All districts":
             staff_filtered = staff_filtered[staff_filtered["District"].astype(str) == selected_district]
-        if selected_palika != "All Palikas":
+        if selected_palika != "All Rural Municipalities / Municipalities":
             staff_filtered = staff_filtered[staff_filtered["Palika"].astype(str) == selected_palika]
         active_status = staff_filtered["Status"].astype(str).str.strip().str.lower().isin(["active", "onboarded", "assigned", "current"])
         if active_status.any():
