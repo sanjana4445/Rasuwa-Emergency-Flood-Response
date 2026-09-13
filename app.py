@@ -287,7 +287,6 @@ total_progress = filtered_df["Progress"].sum()
 completion = total_progress / total_target * 100 if total_target else 0
 remaining = max(total_target - total_progress, 0)
 
-st.markdown('<div class="section"><h4>Response at a glance</h4><p>Progress, project time-lapse, and source freshness for the selected data.</p></div>', unsafe_allow_html=True)
 m1, m2, m3 = st.columns(3)
 metrics = [
     ("Total progress", f"{completion:.1f}%", "Weighted by target"),
@@ -310,8 +309,8 @@ for output_start in range(0, len(output_totals), columns_per_row):
                 unsafe_allow_html=True,
             )
 
-tab_overview, tab_partner, tab_period, tab_trends, tab_percentage, tab_monitoring, tab_staff, tab_data = st.tabs(
-    ["Overview", "Partners", "Daily / Weekly", "Partner trends", "Progress %", "Monitoring", "Staff roster", "Data & export"]
+tab_overview, tab_partner, tab_period, tab_trends, tab_monitoring, tab_staff, tab_data = st.tabs(
+    ["Overview", "Partners", "Daily / Weekly", "Partner trends", "Monitoring", "Staff roster", "Data & export"]
 )
 
 with tab_overview:
@@ -327,26 +326,40 @@ with tab_overview:
     st.plotly_chart(chart_theme(figure), width="stretch")
 
 with tab_partner:
-    partner_summary = filtered_df.groupby("Partner", as_index=False)[["Target", "Progress"]].sum()
+    partner_summary = filtered_df.groupby(["Partner", "Result Area"], as_index=False)[["Target", "Progress"]].sum()
     partner_summary["Completion %"] = (partner_summary["Progress"] / partner_summary["Target"].replace(0, 1) * 100).clip(0, 100).round(1)
     left, right = st.columns([6, 4])
     with left:
-        partner_chart = px.bar(partner_summary, x="Partner", y=["Target", "Progress"], barmode="group", color_discrete_map={"Target": "#e4a11b", "Progress": "#0072bc"})
+        partner_chart = px.bar(
+            partner_summary,
+            x="Partner",
+            y=["Target", "Progress"],
+            color="Result Area",
+            barmode="group",
+            color_discrete_sequence=["#0072bc", "#00aeef", "#20965a", "#e4a11b", "#64748b", "#0f766e"],
+        )
         st.plotly_chart(chart_theme(partner_chart), width="stretch")
     with right:
         st.dataframe(partner_summary, width="stretch", hide_index=True, column_config={"Completion %": st.column_config.NumberColumn(format="%.1f%%")})
 
 with tab_period:
-    period_summary = filtered_df.groupby("Frequency", as_index=False)[["Target", "Progress"]].sum()
+    period_summary = filtered_df.groupby(["Frequency", "Result Area"], as_index=False)[["Target", "Progress"]].sum()
     period_summary["Completion %"] = (period_summary["Progress"] / period_summary["Target"].replace(0, 1) * 100).clip(0, 100).round(1)
-    period_chart = px.bar(period_summary, x="Frequency", y=["Target", "Progress"], barmode="group", color_discrete_map={"Target": "#e4a11b", "Progress": "#0072bc"})
+    period_chart = px.bar(
+        period_summary,
+        x="Frequency",
+        y=["Target", "Progress"],
+        color="Result Area",
+        barmode="group",
+        color_discrete_sequence=["#0072bc", "#00aeef", "#20965a", "#e4a11b", "#64748b", "#0f766e"],
+    )
     st.plotly_chart(chart_theme(period_chart), width="stretch")
-    st.dataframe(filtered_df[["Partner", "Frequency", "District", "Municipality", "Indicator", "Target", "Progress", "Completion %", "Activities"]], width="stretch", hide_index=True)
+    st.dataframe(filtered_df[["Partner", "Frequency", "District", "Municipality", "Result Area", "Indicator", "Target", "Progress", "Completion %", "Activities"]], width="stretch", hide_index=True)
 
 with tab_trends:
     st.subheader("Partner trends and target gaps")
-    st.caption("This compares Daily and Weekly reporting periods. Add a date column to the Excel sheets when a chronological time-lapse is required.")
-    partner_period = filtered_df.groupby(["Partner", "Frequency"], as_index=False)[["Target", "Progress"]].sum()
+    st.caption("This compares Daily and Weekly reporting periods at output level so each target is tracked separately by result area.")
+    partner_period = filtered_df.groupby(["Partner", "Frequency", "Result Area"], as_index=False)[["Target", "Progress"]].sum()
     partner_period["Completion %"] = (
         partner_period["Progress"] / partner_period["Target"].replace(0, 1) * 100
     ).clip(0, 100).round(1)
@@ -359,11 +372,12 @@ with tab_trends:
             partner_period.sort_values("Frequency"),
             x="Frequency",
             y="Completion %",
-            color="Partner",
+            color="Result Area",
+            line_group="Partner",
             markers=True,
             range_y=[0, 100],
-            title="Partner completion by reporting period",
-            color_discrete_sequence=["#0072bc", "#00aeef", "#20965a", "#e4a11b"],
+            title="Output completion by reporting period",
+            color_discrete_sequence=["#0072bc", "#00aeef", "#20965a", "#e4a11b", "#64748b", "#0f766e"],
         )
         completion_trend.update_layout(yaxis_title="Completion (%)", xaxis_title="Reporting period")
         st.plotly_chart(chart_theme(completion_trend), width="stretch")
@@ -372,12 +386,12 @@ with tab_trends:
             partner_period.sort_values("Remaining gap", ascending=True),
             x="Remaining gap",
             y="Partner",
-            color="Frequency",
+            color="Result Area",
             orientation="h",
             barmode="group",
             text="Remaining gap",
-            color_discrete_map={"Daily": "#e4a11b", "Weekly": "#0072bc"},
-            title="Partner gap against target",
+            color_discrete_sequence=["#0072bc", "#00aeef", "#20965a", "#e4a11b", "#64748b", "#0f766e"],
+            title="Output gaps by partner",
         )
         gap_trend.update_traces(texttemplate="%{text:,.0f}", textposition="outside", cliponaxis=False)
         st.plotly_chart(chart_theme(gap_trend), width="stretch")
@@ -390,50 +404,6 @@ with tab_trends:
             "Progress": st.column_config.NumberColumn(format="%,.0f"),
             "Completion %": st.column_config.NumberColumn(format="%.1f%%"),
             "Remaining gap": st.column_config.NumberColumn(format="%,.0f"),
-        },
-    )
-
-with tab_percentage:
-    st.subheader("Progress percentage focus")
-    st.caption(f"Latest source update: {last_updated}. Completion is weighted by target for the selected data.")
-    percentage_left, percentage_right = st.columns([6, 4])
-    with percentage_left:
-        percentage_partner = filtered_df.groupby("Partner", as_index=False)[["Target", "Progress"]].sum()
-        percentage_partner["Completion %"] = (
-            percentage_partner["Progress"] / percentage_partner["Target"].replace(0, 1) * 100
-        ).clip(0, 100).round(1)
-        percentage_chart = px.bar(
-            percentage_partner.sort_values("Completion %"),
-            x="Completion %",
-            y="Partner",
-            color="Completion %",
-            orientation="h",
-            text="Completion %",
-            range_x=[0, 100],
-            color_continuous_scale=["#dc2626", "#e4a11b", "#20965a"],
-            title="Completion percentage by partner",
-        )
-        percentage_chart.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-        percentage_chart.update_layout(coloraxis_showscale=False, xaxis_title="Completion (%)")
-        st.plotly_chart(chart_theme(percentage_chart), width="stretch")
-    with percentage_right:
-        st.metric("Overall completion", f"{completion:.1f}%")
-        st.metric("Progress recorded", f"{total_progress:,.0f}")
-        st.metric("Remaining target", f"{remaining:,.0f}")
-        st.info("Progress percentage is calculated as cumulative progress divided by target.")
-
-    output_percentage = filtered_df.groupby("Result Area", as_index=False)[["Target", "Progress"]].sum()
-    output_percentage["Completion %"] = (
-        output_percentage["Progress"] / output_percentage["Target"].replace(0, 1) * 100
-    ).clip(0, 100).round(1)
-    st.dataframe(
-        output_percentage.sort_values("Completion %"),
-        width="stretch",
-        hide_index=True,
-        column_config={
-            "Target": st.column_config.NumberColumn(format="%,.0f"),
-            "Progress": st.column_config.NumberColumn(format="%,.0f"),
-            "Completion %": st.column_config.NumberColumn(format="%.1f%%"),
         },
     )
 
